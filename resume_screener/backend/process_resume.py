@@ -25,7 +25,7 @@ genai.configure(api_key=GOOGLE_API_KEY)
 
 print("Initializing models and connections for Node 2...")
 embedding_model = SentenceTransformer(EMBEDDING_MODEL)
-generative_model = genai.GenerativeModel('gemini-1.5-flash')
+generative_model = genai.GenerativeModel('gemini-2.5-flash')
 
 try:
     pc = pinecone.Pinecone(api_key=PINECONE_API_KEY)
