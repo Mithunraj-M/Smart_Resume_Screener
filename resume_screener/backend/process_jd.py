@@ -87,6 +87,8 @@ if __name__ == "__main__":
         "job_description": jd_text_from_pdf,
         "resume_path": RESUME_PDF_PATH,
         "resume_content": None,
+        "resume_text": "",
+        "candidate_name": "",
         "jd_chunks": [],
         "extracted_resume_features": {},
         "scores": {},

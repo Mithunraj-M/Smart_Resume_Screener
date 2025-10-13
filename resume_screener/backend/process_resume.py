@@ -134,6 +134,9 @@ def process_and_score_resume(state: GraphState) -> GraphState:
     if not resume_text:
         raise ValueError("Could not extract text from resume")
 
+    # Store resume text in state for later use
+    state["resume_text"] = resume_text
+
     resume_skills = extract_skills_from_resume(resume_text, CURATED_SKILLS)
     extracted_features = {"skills": resume_skills}
     print(f"Found {len(resume_skills)} skills in resume: {resume_skills}")
@@ -192,6 +195,8 @@ if __name__ == "__main__":
         "job_description": jd_text,
         "resume_path": RESUME_PDF_PATH,
         "resume_content": None,
+        "resume_text": "",
+        "candidate_name": "",
         "jd_chunks": [],
         "extracted_resume_features": {},
         "scores": {},

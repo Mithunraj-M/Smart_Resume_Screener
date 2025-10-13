@@ -11,11 +11,59 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=GOOGLE_API_KEY)
 generative_model = genai.GenerativeModel('gemini-2.5-pro')
 
+def extract_candidate_name(resume_text: str) -> str:
+    """
+    Uses LLM to extract the candidate's name from resume text.
+    """
+    print(">>> Extracting candidate name from resume...")
+    
+    prompt = f"""
+    You are an expert at extracting information from resumes. Your task is to identify the candidate's full name from the following resume text.
+
+    Resume Text:
+    ---
+    {resume_text[:2000]}  # Limit to first 2000 chars to avoid token limits
+    ---
+
+    Please extract the candidate's full name. Look for:
+    - Name at the top of the resume
+    - Contact information sections
+    - Header sections
+    - Any clear name indicators
+
+    Return ONLY the full name (first name and last name) in the format "FirstName LastName". 
+    If you cannot find a clear name, return "Unknown Candidate".
+
+    Example outputs:
+    - "John Smith"
+    - "Sarah Johnson"
+    - "Unknown Candidate"
+    """
+
+    try:
+        response = generative_model.generate_content(prompt)
+        name = response.text.strip()
+        print(f"<<< Extracted candidate name: {name}")
+        return name
+    except Exception as e:
+        print(f"!!! Name extraction failed: {e}")
+        return "Unknown Candidate"
+
 def generate_natural_language_summary(state: GraphState) -> GraphState:
     """
     Uses an LLM to generate a natural language summary based on the scores.
+    Also extracts the candidate's name from the resume.
     """
     print("\n--- Executing Node: generate_natural_language_summary ---")
+
+    # Extract candidate name from resume text
+    resume_text = state.get("resume_text", "")
+    if resume_text:
+        candidate_name = extract_candidate_name(resume_text)
+        state["candidate_name"] = candidate_name
+    else:
+        state["candidate_name"] = "Unknown Candidate"
+        print("Warning: No resume text available for name extraction.")
 
     scores = state.get("scores", {})
     if not scores:
@@ -53,6 +101,9 @@ if __name__ == "__main__":
     test_state: GraphState = {
         "job_description": "...",
         "resume_path": "...",
+        "resume_content": None,
+        "resume_text": "John Smith\nSoftware Engineer\njohn.smith@email.com\n\nExperience:\n- 5 years in software development\n- Python, Java, C++\n- Machine Learning",
+        "candidate_name": "",
         "jd_chunks": [],
         "extracted_resume_features": {
             'skills': ['c', 'embedded systems', 'python']

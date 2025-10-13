@@ -20,6 +20,7 @@ async def check():
 class AnalysisResponse(BaseModel):
     scores: Dict[str,Any]
     final_summary: str
+    candidate_name: str
     resume_filename: str
     job_filename: str
 
@@ -46,6 +47,8 @@ async def analyze_resume(job_description: UploadFile = File(...), resume: Upload
             "job_description": jd_text,
             "resume_content": resume_content,
             "resume_path": "",  # Empty for API usage
+            "resume_text": "",  # Will be populated by process_resume
+            "candidate_name": "",  # Will be populated by generate_summary
             "jd_chunks": [],
             "extracted_resume_features": {},
             "scores": {},
@@ -61,10 +64,12 @@ async def analyze_resume(job_description: UploadFile = File(...), resume: Upload
         final_node_state = final_state['generate_summary']
         scores = final_node_state['scores']
         summary = final_node_state['final_summary']
+        candidate_name = final_node_state.get('candidate_name', 'Unknown Candidate')
         
         return AnalysisResponse(
             scores=scores,
             final_summary=summary,
+            candidate_name=candidate_name,
             resume_filename=resume.filename,
             job_filename=job_description.filename
         )
