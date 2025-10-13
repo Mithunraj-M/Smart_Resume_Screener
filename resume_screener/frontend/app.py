@@ -57,7 +57,7 @@ st.markdown("""
     .candidate-name {
         font-size: 1.5rem;
         font-weight: 600;
-        color: #1f2937;
+        color: white;
         margin-bottom: 1rem;
     }
 </style>

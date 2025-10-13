@@ -11,7 +11,6 @@ from PyPDF2 import PdfReader
 import google.generativeai as genai 
 
 from .state import GraphState
-from .skills import CURATED_SKILLS
 from .process_jd import process_job_description
 
 load_dotenv()
@@ -61,51 +60,53 @@ def extract_text_from_pdf(pdf_path: str = None, pdf_content: bytes = None) -> st
         print(f"Error reading PDF: {e}")
     return text
 
-def extract_skills_from_resume(text: str, skill_list: list) -> list:
-    """Extracts skills from text based on a curated list (simple keyword match)."""
-    found_skills = set()
-    text_lower = text.lower()
-    text_lower = re.sub(r'\s+', ' ', text_lower).strip()
-    for skill in skill_list:
-        if re.search(r'\b' + re.escape(skill) + r'\b', text_lower):
-            found_skills.add(skill)
-    return sorted(list(found_skills))
-
-
-def expand_job_requirements_with_llm(jd_text: str, skill_list: list) -> list:
+def extract_skills_with_llm(text: str, text_type: str = "resume") -> list:
     """
-    Uses a generative LLM to intelligently extract required skills from a JD.
+    Uses LLM to extract ALL relevant technical skills from text.
+    No constraints - LLM can identify any skill it finds.
     """
-    print("\n>>> Performing advanced query translation with LLM...")
+    print(f"\n>>> Extracting skills from {text_type} using LLM...")
 
     prompt = f"""
-    You are an expert technical recruiter and HR analyst. Your task is to analyze the following job description and identify the most essential skills required for the role.
+    You are an expert technical recruiter and HR analyst. Your task is to extract ALL technical skills, technologies, frameworks, and tools mentioned in the following {text_type} text.
 
-    You MUST only choose skills from the provided list of `VALID_SKILLS`. Do not invent skills.
-
-    Job Description:
+    {text_type.title()} Text:
     ---
-    {jd_text}
+    {text[:3000]}  # Limit to first 3000 chars to avoid token limits
     ---
 
-    VALID_SKILLS:
-    {', '.join(skill_list)}
-    ---
+    Please extract ALL relevant technical skills including:
+    - Programming languages (e.g., Python, Java, JavaScript, C++, Go, Rust)
+    - Frameworks and libraries (e.g., React, Django, Spring Boot, TensorFlow)
+    - Databases and storage (e.g., PostgreSQL, MongoDB, Redis, Elasticsearch)
+    - Cloud platforms and services (e.g., AWS, Azure, GCP, Docker, Kubernetes)
+    - DevOps and deployment tools (e.g., Jenkins, Terraform, Git, CI/CD)
+    - Methodologies and practices (e.g., Agile, Scrum, TDD, Microservices)
+    - Domain-specific technologies (e.g., Blockchain, AI/ML, IoT, Embedded Systems)
 
-    Your final output must be a single, valid JSON array of strings, with no other text before or after it.
-    Example: ["python", "c++", "agile", "embedded systems"]
+    Return ONLY a valid JSON array of strings, with no other text before or after it.
+    Be comprehensive but avoid duplicates. Use lowercase for consistency.
+
+    Example: ["python", "react", "aws", "docker", "kubernetes", "postgresql", "agile", "microservices"]
     """
 
     try:
         response = generative_model.generate_content(prompt)
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "")
-        required_skills = json.loads(cleaned_response)
-        print(f"<<< LLM identified {len(required_skills)} required skills.")
-        return required_skills
+        skills = json.loads(cleaned_response)
+        
+        # Ensure we have a list and remove duplicates
+        if isinstance(skills, list):
+            skills = list(set(skills))  # Remove duplicates
+            print(f"<<< LLM identified {len(skills)} skills from {text_type}.")
+            return skills
+        else:
+            print(f"!!! LLM returned non-list format: {skills}")
+            return []
+            
     except Exception as e:
-        print(f"!!! LLM or JSON parsing failed: {e}")
-        print("!!! Falling back to simple keyword extraction for JD.")
-        return extract_skills_from_resume(jd_text, skill_list)
+        print(f"!!! LLM skill extraction failed for {text_type}: {e}")
+        return []
 
 
 
@@ -137,28 +138,47 @@ def process_and_score_resume(state: GraphState) -> GraphState:
     # Store resume text in state for later use
     state["resume_text"] = resume_text
 
-    resume_skills = extract_skills_from_resume(resume_text, CURATED_SKILLS)
+    # Extract skills from resume using LLM
+    resume_skills = extract_skills_with_llm(resume_text, "resume")
     extracted_features = {"skills": resume_skills}
     print(f"Found {len(resume_skills)} skills in resume: {resume_skills}")
 
+    # Calculate semantic match score
     resume_embedding = embedding_model.encode(resume_text).tolist()
     query_response = index.query(vector=resume_embedding, top_k=3, include_metadata=False)
     semantic_scores = [match['score'] for match in query_response['matches']]
     semantic_match_score = sum(semantic_scores) / len(semantic_scores) if semantic_scores else 0
     print(f"Semantic match score (avg of top 3): {semantic_match_score:.4f}")
 
+    # Extract required skills from job description using LLM
     jd_text = state["job_description"]
-    required_skills = expand_job_requirements_with_llm(jd_text, CURATED_SKILLS)
+    required_skills = extract_skills_with_llm(jd_text, "job description")
     
+    # Calculate skill match score
     matched_skills = set()
     if not required_skills:
         skill_match_score = 0
-        print("Warning: No skills identified by LLM or fallback. Skill score is 0.")
+        print("Warning: No skills identified in job description. Skill score is 0.")
+    elif not resume_skills:
+        skill_match_score = 0
+        print("Warning: No skills identified in resume. Skill score is 0.")
     else:
-        matched_skills = set(required_skills).intersection(set(resume_skills))
+        # Find matches between resume and required skills (case-insensitive)
+        resume_skills_lower = [skill.lower().strip() for skill in resume_skills]
+        required_skills_lower = [skill.lower().strip() for skill in required_skills]
+        
+        matched_skills = set(required_skills_lower).intersection(set(resume_skills_lower))
+        
+        # Convert back to original case for display
+        matched_skills_original = []
+        for req_skill in required_skills:
+            if req_skill.lower().strip() in matched_skills:
+                matched_skills_original.append(req_skill)
+        
         skill_match_score = len(matched_skills) / len(required_skills)
         print(f"Required skills (from LLM): {required_skills}")
-        print(f"Matched skills: {list(matched_skills)}")
+        print(f"Resume skills (from LLM): {resume_skills}")
+        print(f"Matched skills: {matched_skills_original}")
         print(f"Skill match score: {len(matched_skills)}/{len(required_skills)} = {skill_match_score:.4f}")
 
     overall_score = (
