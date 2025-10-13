@@ -1,0 +1,76 @@
+import os
+from typing import Dict, Any
+
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from pydantic import BaseModel
+import uvicorn
+from .graph import app as resume_screener_app
+from .process_resume import extract_text_from_pdf
+
+app = FastAPI(
+    title="Smart Resume Screener",
+    description="AI-powered resume screening system using LangGraph and vector embeddings",
+    version="1.0.0"
+)
+
+@app.get("/")
+async def check():
+    return {"status": "live", "message": "Resume Screener API is running"}
+
+class AnalysisResponse(BaseModel):
+    scores: Dict[str,Any]
+    final_summary: str
+    resume_filename: str
+    job_filename: str
+
+@app.post("/analyze/", response_model=AnalysisResponse)
+async def analyze_resume(job_description: UploadFile = File(...), resume: UploadFile = File(...)):
+    # Validate file types
+    if not job_description.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Job description must be a PDF file")
+    if not resume.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Resume must be a PDF file")
+    
+    try:
+        # Read file contents
+        jd_content = await job_description.read()
+        resume_content = await resume.read()
+        
+        # Extract text from job description
+        jd_text = extract_text_from_pdf(pdf_content=jd_content)
+        if not jd_text:
+            raise HTTPException(status_code=400, detail="Could not extract text from job description")
+        
+        # Prepare input for the graph
+        initial_input = {
+            "job_description": jd_text,
+            "resume_content": resume_content,
+            "resume_path": "",  # Empty for API usage
+            "jd_chunks": [],
+            "extracted_resume_features": {},
+            "scores": {},
+            "final_summary": ""
+        }
+        
+        # Run the workflow
+        final_state = None
+        for state in resume_screener_app.stream(initial_input):
+            final_state = state
+        
+        # Extract results
+        final_node_state = final_state['generate_summary']
+        scores = final_node_state['scores']
+        summary = final_node_state['final_summary']
+        
+        return AnalysisResponse(
+            scores=scores,
+            final_summary=summary,
+            resume_filename=resume.filename,
+            job_filename=job_description.filename
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+# if __name__ == "__main__":
+#     uvicorn.run(app, host="0.0.0.0", port=8000)

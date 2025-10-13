@@ -1,1 +1,1 @@
-from resume_screener import config  # noqa: F401
+# Package initialization for resume_screener

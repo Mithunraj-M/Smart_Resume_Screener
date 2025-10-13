@@ -8,7 +8,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 import pinecone
 
-from state import GraphState
+from .state import GraphState
 
 load_dotenv()
 
@@ -86,6 +86,7 @@ if __name__ == "__main__":
     initial_state: GraphState = {
         "job_description": jd_text_from_pdf,
         "resume_path": RESUME_PDF_PATH,
+        "resume_content": None,
         "jd_chunks": [],
         "extracted_resume_features": {},
         "scores": {},

@@ -1,5 +1,5 @@
 
-from typing import TypedDict, List, Dict, Any
+from typing import TypedDict, List, Dict, Any, Optional
 
 class GraphState(TypedDict):
     """
@@ -7,7 +7,8 @@ class GraphState(TypedDict):
 
     Attributes:
         job_description: The initial job description text.
-        resume_path: The file path to the candidate's resume.
+        resume_path: The file path to the candidate's resume (for testing).
+        resume_content: The resume PDF content as bytes (for API).
         jd_chunks: A list of text chunks from the job description.
         extracted_resume_features: Structured data from the resume.
         scores: The calculated scores for the resume.
@@ -15,6 +16,7 @@ class GraphState(TypedDict):
     """
     job_description: str
     resume_path: str
+    resume_content: Optional[bytes]
     jd_chunks: List[str]
     extracted_resume_features: Dict[str, Any]
     scores: Dict[str, Any]

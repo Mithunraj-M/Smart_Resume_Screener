@@ -10,9 +10,9 @@ import pinecone
 from PyPDF2 import PdfReader
 import google.generativeai as genai 
 
-from state import GraphState
-from skills import CURATED_SKILLS
-from process_jd import process_job_description
+from .state import GraphState
+from .skills import CURATED_SKILLS
+from .process_jd import process_job_description
 
 load_dotenv()
 
@@ -41,17 +41,24 @@ WEIGHTS = {
 }
 
 
-def extract_text_from_pdf(pdf_path: str) -> str:
-    """Extracts text from all pages of a PDF file using PyPDF2."""
+def extract_text_from_pdf(pdf_path: str = None, pdf_content: bytes = None) -> str:
+    """Extracts text from PDF file path or PDF content bytes."""
     text = ""
     try:
-        reader = PdfReader(pdf_path)
+        if pdf_content:
+            # Handle bytes input (from uploaded file)
+            import io
+            reader = PdfReader(io.BytesIO(pdf_content))
+        else:
+            # Handle file path input (existing functionality)
+            reader = PdfReader(pdf_path)
+            
         for page in reader.pages:
             page_text = page.extract_text()
             if page_text:
                 text += page_text + "\n"
     except Exception as e:
-        print(f"Error reading PDF file {pdf_path}: {e}")
+        print(f"Error reading PDF: {e}")
     return text
 
 def extract_skills_from_resume(text: str, skill_list: list) -> list:
@@ -105,16 +112,27 @@ def expand_job_requirements_with_llm(jd_text: str, skill_list: list) -> list:
 def process_and_score_resume(state: GraphState) -> GraphState:
     """
     Processes a resume, extracts features, and scores it against the JD.
+    Now accepts resume content directly from state.
     """
     print("\n--- Executing Node: process_and_score_resume ---")
     if index is None:
         raise ConnectionError("Pinecone index not initialized for Node 2.")
 
-    resume_path = state["resume_path"]
-    resume_text = extract_text_from_pdf(resume_path)
+    # Get resume content from state instead of file path
+    resume_content = state.get("resume_content")  # bytes
+    resume_path = state.get("resume_path")        # string path (for testing)
+    
+    if resume_content:
+        resume_text = extract_text_from_pdf(pdf_content=resume_content)
+        print("Successfully extracted text from resume content")
+    elif resume_path:
+        resume_text = extract_text_from_pdf(pdf_path=resume_path)
+        print(f"Successfully extracted text from resume: {resume_path}")
+    else:
+        raise ValueError("Either resume_content or resume_path must be provided")
+    
     if not resume_text:
-        raise ValueError(f"Could not extract text from resume at {resume_path}")
-    print(f"Successfully extracted text from resume: {resume_path}")
+        raise ValueError("Could not extract text from resume")
 
     resume_skills = extract_skills_from_resume(resume_text, CURATED_SKILLS)
     extracted_features = {"skills": resume_skills}
@@ -173,6 +191,7 @@ if __name__ == "__main__":
     initial_state: GraphState = {
         "job_description": jd_text,
         "resume_path": RESUME_PDF_PATH,
+        "resume_content": None,
         "jd_chunks": [],
         "extracted_resume_features": {},
         "scores": {},

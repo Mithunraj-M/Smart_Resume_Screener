@@ -4,7 +4,7 @@ import pprint
 
 from dotenv import load_dotenv
 import google.generativeai as genai
-from state import GraphState
+from .state import GraphState
 
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")

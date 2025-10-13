@@ -3,10 +3,10 @@ import os
 import pprint
 from langgraph.graph import StateGraph, END
 
-from state import GraphState
-from process_jd import process_job_description
-from process_resume import process_and_score_resume, extract_text_from_pdf
-from generate_summary import generate_natural_language_summary
+from .state import GraphState
+from .process_jd import process_job_description
+from .process_resume import process_and_score_resume, extract_text_from_pdf
+from .generate_summary import generate_natural_language_summary
 
 print("Defining the graph structure...")
 workflow = StateGraph(GraphState)
@@ -37,7 +37,12 @@ if __name__ == "__main__":
     jd_text = extract_text_from_pdf(JD_PDF_PATH)
     initial_input = {
         "job_description": jd_text,
-        "resume_path": RESUME_PDF_PATH
+        "resume_path": RESUME_PDF_PATH,
+        "resume_content": None,
+        "jd_chunks": [],
+        "extracted_resume_features": {},
+        "scores": {},
+        "final_summary": ""
     }
 
     print("\nInvoking the graph with initial input...")
