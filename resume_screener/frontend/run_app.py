@@ -27,7 +27,7 @@ def start_backend():
     try:
         # Start backend in a subprocess
         process = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
+            [sys.executable, "-m", "uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "300"],
             cwd=backend_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE

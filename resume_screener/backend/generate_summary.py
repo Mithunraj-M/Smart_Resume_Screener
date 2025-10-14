@@ -10,7 +10,7 @@ from .state import GraphState
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=GOOGLE_API_KEY)
-generative_model = genai.GenerativeModel('gemini-2.5-pro')
+generative_model = genai.GenerativeModel('gemini-2.5-flash')
 
 def extract_candidate_name(resume_text: str) -> str:
     """

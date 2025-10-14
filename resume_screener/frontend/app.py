@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import json
-from typing import Dict, Any
+from typing import Dict, Any, List
 import io
 
 # Page configuration
@@ -87,6 +87,29 @@ def call_api(jd_file, resume_file) -> Dict[str, Any]:
     except requests.exceptions.ConnectionError:
         st.error("Cannot connect to the API server. Please make sure the backend is running on http://localhost:8000")
         return None
+
+def call_api_batch(jd_file, resume_files: List[Any]) -> Dict[str, Any]:
+    """Call the FastAPI backend to analyze multiple resumes."""
+    try:
+        url = "http://localhost:8000/analyze_batch/"
+        files = [('job_description', ('job_description.pdf', jd_file, 'application/pdf'))]
+        for rf in resume_files:
+            files.append(('resumes', (getattr(rf, 'name', 'resume.pdf'), rf, 'application/pdf')))
+        response = requests.post(url, files=files, timeout=300)  # 5 minutes timeout
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"API Error: {response.status_code} - {response.text}")
+            return None
+    except requests.exceptions.ConnectionError:
+        st.error("Cannot connect to the API server. Please make sure the backend is running on http://localhost:8000")
+        return None
+    except requests.exceptions.Timeout:
+        st.error("Request timed out. The analysis is taking longer than expected.")
+        return None
+    except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
+        return None
     except requests.exceptions.Timeout:
         st.error("Request timed out. The analysis is taking longer than expected.")
         return None
@@ -135,9 +158,11 @@ def main():
         st.markdown("### Instructions")
         st.markdown("""
         1. Upload a job description PDF
-        2. Upload a candidate's resume PDF
-        3. Click 'Analyze Resume' to get results
+        2. Upload one or more candidate resume PDFs
+        3. Click 'Analyze Resumes' to get results
         4. View the analysis and recommendations
+        
+        **Note:** Batch analysis may take 2-5 minutes depending on the number of resumes.
         """)
     
     # Main content area
@@ -156,12 +181,13 @@ def main():
     
     with col2:
         st.markdown('<div class="upload-section">', unsafe_allow_html=True)
-        st.subheader("Candidate Resume")
-        resume_file = st.file_uploader(
-            "Upload Resume PDF",
+        st.subheader("Candidate Resumes")
+        resume_files = st.file_uploader(
+            "Upload one or more Resume PDFs",
             type=['pdf'],
             key="resume_upload",
-            help="Upload the candidate's resume as a PDF file"
+            help="Upload one or multiple candidate resumes as PDF files",
+            accept_multiple_files=True
         )
         st.markdown('</div>', unsafe_allow_html=True)
     
@@ -171,107 +197,80 @@ def main():
     
     with col2:
         analyze_button = st.button(
-            "Analyze Resume",
+            "Analyze Resumes",
             type="primary",
             use_container_width=True,
-            disabled=(jd_file is None or resume_file is None)
+            disabled=(jd_file is None or not resume_files)
         )
     
     # Results section
-    if analyze_button and jd_file and resume_file:
-        with st.spinner("Analyzing resume... This may take a few moments."):
-            # Reset file pointers
-            jd_file.seek(0)
-            resume_file.seek(0)
-            
-            # Call API
-            result = call_api(jd_file, resume_file)
+    if analyze_button and jd_file and resume_files:
+        # Create progress bar
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        if result:
+        status_text.text(f"Starting analysis of {len(resume_files)} resumes...")
+        progress_bar.progress(0.1)
+        
+        with st.spinner(f"Analyzing {len(resume_files)} resumes... This may take 2-5 minutes depending on the number of resumes."):
+            jd_file.seek(0)
+            for rf in resume_files:
+                try:
+                    rf.seek(0)
+                except Exception:
+                    pass
+            
+            status_text.text("Sending request to backend...")
+            progress_bar.progress(0.3)
+            
+            batch_result = call_api_batch(jd_file, resume_files)
+            
+            if batch_result:
+                progress_bar.progress(1.0)
+                status_text.text("Analysis complete!")
+            else:
+                progress_bar.progress(0.0)
+                status_text.text("Analysis failed.")
+
+        if batch_result and 'results' in batch_result:
             st.markdown('<div class="result-section">', unsafe_allow_html=True)
-            
-            # Get candidate name from API response
-            candidate_name = result.get('candidate_name', 'Unknown Candidate')
-            
-            # Display candidate name
-            st.markdown(f'<div class="candidate-name">Candidate: {candidate_name}</div>', unsafe_allow_html=True)
-            
-            # Display scores
-            scores = result.get('scores', {})
-            overall_score = scores.get('overall_score', 0)
-            semantic_score = scores.get('semantic_match_score', 0)
-            skill_score = scores.get('skill_match_score', 0)
-            
-            # Score metrics
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                score_class = get_score_color(overall_score)
-                score_label = get_score_label(overall_score)
-                st.metric(
-                    "Overall Score",
-                    f"{overall_score:.2f}",
-                    help=f"Overall compatibility: {score_label}"
-                )
-                st.markdown(f'<p class="{score_class}">{score_label}</p>', unsafe_allow_html=True)
-            
-            with col2:
-                st.metric(
-                    "Semantic Match",
-                    f"{semantic_score:.2f}",
-                    help="Conceptual alignment with job requirements"
-                )
-            
-            with col3:
-                st.metric(
-                    "Skill Match",
-                    f"{skill_score:.2f}",
-                    help="Direct match of required skills"
-                )
-            
+            st.subheader("Candidates (sorted by score)")
+
+            # Table summary
+            import pandas as pd
+            rows = []
+            for item in batch_result['results']:
+                rows.append({
+                    'Resume ID': item.get('resume_id'),
+                    'Candidate': item.get('candidate_name', 'Unknown'),
+                    'Score': round(item.get('consolidated_score', 0.0)*100, 1),
+                    'Summary': item.get('summary', '')
+                })
+            df = pd.DataFrame(rows)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
             st.markdown("---")
-            
-            # Skills analysis
-            matched_skills = scores.get('matched_skills', [])
-            required_skills = scores.get('required_skills', [])
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("Required Skills")
-                if required_skills:
-                    for skill in required_skills:
-                        if skill in matched_skills:
-                            st.markdown(f"✅ {skill}")
-                        else:
-                            st.markdown(f"❌ {skill}")
-                else:
-                    st.info("No specific skills identified")
-            
-            with col2:
-                st.subheader("Matched Skills")
-                if matched_skills:
-                    for skill in matched_skills:
-                        st.markdown(f"✅ {skill}")
-                else:
-                    st.info("No skills matched")
-            
-            st.markdown("---")
-            
-            # AI Summary
-            st.subheader("Analysis Summary")
-            summary = result.get('final_summary', 'No summary available')
-            st.info(summary)
-            
-            # File information
-            st.markdown("---")
-            st.subheader("File Information")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.text(f"Job Description: {result.get('job_filename', 'Unknown')}")
-            with col2:
-                st.text(f"Resume: {result.get('resume_filename', 'Unknown')}")
-            
+            st.subheader("Details")
+
+            # Drilldown per candidate
+            for item in batch_result['results']:
+                with st.expander(f"{item.get('candidate_name','Unknown')} • {item.get('resume_id')} • Score: {item.get('consolidated_score',0.0):.2f}"):
+                    st.markdown(f"**Summary:** {item.get('summary','')}")
+                    cat_scores = item.get('individual_scores', {})
+                    if cat_scores:
+                        cs_rows = []
+                        for cat, data in cat_scores.items():
+                            cs_rows.append({
+                                'Category': cat.replace('_',' ').title(),
+                                'Score': round(data.get('score',0.0)*100,1),
+                                'Best': round(data.get('best_similarity', data.get('score',0.0))*100,1) if isinstance(data, dict) else '' ,
+                                'Avg': round(data.get('avg_similarity', data.get('score',0.0))*100,1) if isinstance(data, dict) else ''
+                            })
+                        cs_df = pd.DataFrame(cs_rows)
+                        st.dataframe(cs_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No category scores available.")
+
             st.markdown('</div>', unsafe_allow_html=True)
     
     # Footer
