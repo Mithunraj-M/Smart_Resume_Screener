@@ -77,6 +77,18 @@ def generate_category_specific_summary(category_scores: Dict[str, Any], consolid
     # Ensure safe values for prompt
     best_category_label = (best_category.replace('_', ' ').title()) if isinstance(best_category, str) else "Overall Fit"
 
+    # Compute recommendation label in code (calibrated thresholds)
+    def get_label(cons_score: float, best_cat_score: float) -> str:
+        if cons_score >= 0.55 or best_cat_score >= 0.65:
+            return "Strong match"
+        if cons_score >= 0.45 or best_cat_score >= 0.55:
+            return "Good match"
+        if cons_score >= 0.30:
+            return "Moderate match"
+        return "Weak match"
+
+    recommendation_label = get_label(consolidated_score, best_score)
+
     prompt = f"""
     You are an expert HR Analyst. Based on these detailed category scores for candidate {candidate_name}, write a one-sentence summary explaining why this candidate is a strong or weak match.
     
@@ -85,17 +97,12 @@ def generate_category_specific_summary(category_scores: Dict[str, Any], consolid
     
     Consolidated Score: {consolidated_score:.1%}
     Best Category: {best_category_label} ({best_score:.1%})
+    Recommended decision: {recommendation_label}
     
     Write a single, clear sentence that:
-    1. States if this is a "Strong match", "Good match", "Moderate match", or "Weak match"
+    1. States the provided decision exactly (no stronger/weaker wording): "{recommendation_label}"
     2. Mentions the category with the highest score as the primary reason
     3. Be specific about what makes them strong/weak
-    
-    Scoring Guidelines:
-    - Strong match: consolidated score > 0.6 or best category > 0.7
-    - Good match: consolidated score > 0.4 or best category > 0.5
-    - Moderate match: consolidated score > 0.2 or best category > 0.3
-    - Weak match: below moderate thresholds
     
     Example: "Strong match, primarily due to extensive and highly relevant work experience in software development."
     """
@@ -104,14 +111,14 @@ def generate_category_specific_summary(category_scores: Dict[str, Any], consolid
         response = generative_model.generate_content(prompt)
         if not response or not response.text:
             print("!!! Category-specific summary generation failed: Empty response from LLM")
-            return f"Moderate match based on overall score of {consolidated_score:.1%}."
+            return f"{recommendation_label}, primarily due to {best_category_label.lower()} performance."
             
         summary = response.text.strip()
         print(f"<<< Generated category-specific summary: {summary}")
         return summary
     except Exception as e:
         print(f"!!! Category-specific summary generation failed: {e}")
-        return f"Moderate match based on overall score of {consolidated_score:.1%}."
+        return f"{recommendation_label}, primarily due to {best_category_label.lower()} performance."
 
 def generate_natural_language_summary(state: GraphState) -> GraphState:
     """

@@ -136,6 +136,9 @@ def perform_multi_query_search(jd_requirements: Dict[str, Any], resume_chunks: L
         # Search against resume chunks
         matches = []
         for chunk in resume_chunks:
+            # Category-aware filtering: for skills/tools, restrict to concrete evidence
+            if jd_category in {"hard_skills", "required_tools"} and chunk.get('category') not in {"skills", "projects", "work_experience"}:
+                continue
             # Calculate cosine similarity
             import numpy as np
             similarity = np.dot(query_embedding, chunk['embedding']) / (
@@ -152,15 +155,19 @@ def perform_multi_query_search(jd_requirements: Dict[str, Any], resume_chunks: L
         # Get top 5 matches
         top_matches = sorted(matches, key=lambda x: x['similarity'], reverse=True)[:5]
         
-        # Calculate average similarity score
+        # Calculate average and best similarity score
         avg_similarity = sum(match['similarity'] for match in top_matches) / len(top_matches) if top_matches else 0.0
+        best_similarity = top_matches[0]['similarity'] if top_matches else 0.0
+        mixed_score = 0.6 * best_similarity + 0.4 * avg_similarity
         
         category_scores[jd_category] = {
-            "score": round(avg_similarity, 4),
+            "score": round(mixed_score, 4),
+            "avg_similarity": round(avg_similarity, 4),
+            "best_similarity": round(best_similarity, 4),
             "matches": top_matches
         }
         
-        print(f"{jd_category}: {len(top_matches)} matches, avg similarity: {avg_similarity:.4f}")
+        print(f"{jd_category}: {len(top_matches)} matches, best: {best_similarity:.4f}, avg: {avg_similarity:.4f}, mixed: {mixed_score:.4f}")
         if top_matches:
             print(f"  Top match: {top_matches[0]['text'][:100]}... (similarity: {top_matches[0]['similarity']:.4f})")
     
@@ -170,10 +177,11 @@ def calculate_consolidated_score(category_scores: Dict[str, Any]) -> float:
     """
     Calculate weighted consolidated score.
     """
+    # Entry-level leaning weights (sum to 1.0)
     weights = {
-        "work_experience": 0.4,
-        "hard_skills": 0.3,
-        "projects": 0.2,
+        "work_experience": 0.2,
+        "hard_skills": 0.4,
+        "projects": 0.3,
         "education": 0.05,
         "certifications": 0.05
     }
