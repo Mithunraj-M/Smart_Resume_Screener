@@ -3,7 +3,7 @@ from typing import TypedDict, List, Dict, Any, Optional
 
 class GraphState(TypedDict):
     """
-    Represents the state of our graph.
+    Represents the state of our graph with structured resume analysis.
 
     Attributes:
         job_description: The initial job description text.
@@ -11,9 +11,10 @@ class GraphState(TypedDict):
         resume_content: The resume PDF content as bytes (for API).
         resume_text: The extracted text from the resume.
         candidate_name: The extracted candidate name from the resume.
-        jd_chunks: A list of text chunks from the job description.
-        extracted_resume_features: Structured data from the resume.
-        scores: The calculated scores for the resume.
+        resume_chunks: Structured resume chunks with categories and embeddings.
+        jd_requirements: Structured job requirements extracted from JD.
+        category_scores: Individual scores for each resume category.
+        consolidated_score: Final weighted score for the candidate.
         final_summary: The final LLM-generated summary.
     """
     job_description: str
@@ -21,7 +22,8 @@ class GraphState(TypedDict):
     resume_content: Optional[bytes]
     resume_text: str
     candidate_name: str
-    jd_chunks: List[str]
-    extracted_resume_features: Dict[str, Any]
-    scores: Dict[str, Any]
+    resume_chunks: List[Dict[str, Any]]
+    jd_requirements: Dict[str, Any]
+    category_scores: Dict[str, Any]
+    consolidated_score: float
     final_summary: str

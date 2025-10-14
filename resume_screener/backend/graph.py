@@ -10,14 +10,14 @@ from .generate_summary import generate_natural_language_summary
 
 print("Defining the graph structure...")
 workflow = StateGraph(GraphState)
-workflow.add_node("process_jd", process_job_description)
 workflow.add_node("process_resume", process_and_score_resume)
+workflow.add_node("process_jd", process_job_description)
 workflow.add_node("generate_summary", generate_natural_language_summary)
 
-workflow.set_entry_point("process_jd")
+workflow.set_entry_point("process_resume")
 
-workflow.add_edge("process_jd", "process_resume")
-workflow.add_edge("process_resume", "generate_summary")
+workflow.add_edge("process_resume", "process_jd")
+workflow.add_edge("process_jd", "generate_summary")
 workflow.add_edge("generate_summary", END)
 
 print("Compiling the graph...")

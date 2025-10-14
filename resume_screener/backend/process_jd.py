@@ -2,11 +2,14 @@
 import os
 import pprint
 import pdfplumber
+import json
+from typing import Dict, List, Any
 
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 import pinecone
+import google.generativeai as genai
 
 from .state import GraphState
 
@@ -14,11 +17,16 @@ load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"  
 print("Initializing embedding model...")
 model = SentenceTransformer(EMBEDDING_MODEL)
 print("Model loaded.")
+
+# Initialize Gemini
+genai.configure(api_key=GOOGLE_API_KEY)
+generative_model = genai.GenerativeModel('gemini-2.5-flash')
 
 try:
     print("Initializing Pinecone client...")
@@ -31,9 +39,147 @@ except Exception as e:
     index = None
 
 
+def translate_jd_to_structured_requirements(jd_text: str) -> Dict[str, Any]:
+    """
+    Use Gemini LLM to extract structured requirements from job description.
+    """
+    print("\n>>> Translating JD to structured requirements...")
+    
+    prompt = f"""
+    Analyze this job description and extract structured requirements. Return a JSON object with these keys:
+    
+    Job Description:
+    ---
+    {jd_text[:3000]}  # Limit to avoid token limits
+    ---
+    
+    Extract and return as JSON:
+    {{
+        "required_experience": "years and type of experience needed",
+        "hard_skills": ["list of technical skills and technologies"],
+        "soft_skills": ["list of interpersonal and behavioral skills"],
+        "required_tools": ["specific tools, platforms, frameworks"],
+        "education_requirements": "degree and field requirements",
+        "certifications": ["required certifications"],
+        "project_experience": ["types of projects they should have worked on"],
+        "industry_experience": "specific industry or domain experience needed"
+    }}
+    
+    Be specific and comprehensive. If a category is not mentioned, use empty string or array.
+    Return ONLY valid JSON, no other text.
+    """
+    
+    try:
+        response = generative_model.generate_content(prompt)
+        cleaned_response = response.text.strip().replace("```json", "").replace("```", "")
+        requirements = json.loads(cleaned_response)
+        print(f"<<< Extracted structured requirements: {list(requirements.keys())}")
+        return requirements
+    except Exception as e:
+        print(f"!!! JD translation failed: {e}")
+        return {
+            "required_experience": "",
+            "hard_skills": [],
+            "soft_skills": [],
+            "required_tools": [],
+            "education_requirements": "",
+            "certifications": [],
+            "project_experience": [],
+            "industry_experience": ""
+        }
+
+def perform_multi_query_search(jd_requirements: Dict[str, Any], resume_chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Perform multi-query search for each JD category against resume chunks.
+    """
+    print("\n--- Performing multi-query search ---")
+    
+    category_scores = {}
+    
+    # Define category mappings
+    category_mappings = {
+        "work_experience": ["work_experience"],
+        "hard_skills": ["skills"],
+        "projects": ["projects"],
+        "education": ["education"],
+        "certifications": ["certifications"]
+    }
+    
+    for jd_category, jd_requirements_text in jd_requirements.items():
+        if not jd_requirements_text or (isinstance(jd_requirements_text, list) and len(jd_requirements_text) == 0):
+            category_scores[jd_category] = {"score": 0.0, "matches": []}
+            continue
+            
+        # Create query text for this category
+        if isinstance(jd_requirements_text, list):
+            query_text = f"Required {jd_category.replace('_', ' ')}: {', '.join(jd_requirements_text)}"
+        else:
+            query_text = f"Required {jd_category.replace('_', ' ')}: {jd_requirements_text}"
+        
+        # Create embedding for query
+        query_embedding = model.encode(query_text).tolist()
+        
+        # Search against resume chunks
+        matches = []
+        for chunk in resume_chunks:
+            # Calculate cosine similarity
+            import numpy as np
+            similarity = np.dot(query_embedding, chunk['embedding']) / (
+                np.linalg.norm(query_embedding) * np.linalg.norm(chunk['embedding'])
+            )
+            
+            matches.append({
+                'chunk_id': chunk['chunk_id'],
+                'category': chunk['category'],
+                'similarity': float(similarity),
+                'text': chunk['text']
+            })
+        
+        # Get top 5 matches
+        top_matches = sorted(matches, key=lambda x: x['similarity'], reverse=True)[:5]
+        
+        # Calculate average similarity score
+        avg_similarity = sum(match['similarity'] for match in top_matches) / len(top_matches) if top_matches else 0.0
+        
+        category_scores[jd_category] = {
+            "score": round(avg_similarity, 4),
+            "matches": top_matches
+        }
+        
+        print(f"{jd_category}: {len(top_matches)} matches, avg similarity: {avg_similarity:.4f}")
+        if top_matches:
+            print(f"  Top match: {top_matches[0]['text'][:100]}... (similarity: {top_matches[0]['similarity']:.4f})")
+    
+    return category_scores
+
+def calculate_consolidated_score(category_scores: Dict[str, Any]) -> float:
+    """
+    Calculate weighted consolidated score.
+    """
+    weights = {
+        "work_experience": 0.4,
+        "hard_skills": 0.3,
+        "projects": 0.2,
+        "education": 0.05,
+        "certifications": 0.05
+    }
+    
+    weighted_sum = 0.0
+    total_weight = 0.0
+    
+    for category, data in category_scores.items():
+        if category in weights:
+            score = data["score"]
+            weight = weights[category]
+            weighted_sum += score * weight
+            total_weight += weight
+    
+    consolidated_score = weighted_sum / total_weight if total_weight > 0 else 0.0
+    return round(consolidated_score, 4)
+
 def process_job_description(state: GraphState) -> GraphState:
     """
-    Chunks, embeds, and upserts the job description into the vector DB.
+    Translate JD to structured requirements and perform multi-query search against resume chunks.
     """
     print("\n--- Executing Node: process_job_description ---")
     if index is None:
@@ -43,23 +189,25 @@ def process_job_description(state: GraphState) -> GraphState:
     if not jd_text:
         raise ValueError("Job Description text is empty. Check the PDF extraction.")
     
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-    chunks = text_splitter.split_text(jd_text)
-    print(f"Split JD into {len(chunks)} chunks.")
-
-    embeddings = model.encode(chunks).tolist()
-    print("Created embeddings for all chunks.")
-
-    vectors_to_upsert = []
-    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        vector_id = f"jd_chunk_{i}"
-        metadata = {"text": chunk, "source": "job_description"}
-        vectors_to_upsert.append({"id": vector_id, "values": embedding, "metadata": metadata})
-
-    index.upsert(vectors=vectors_to_upsert)
-    print(f"Successfully upserted {len(vectors_to_upsert)} vectors to Pinecone.")
-
-    state['jd_chunks'] = chunks
+    # Get resume chunks from state
+    resume_chunks = state.get("resume_chunks", [])
+    if not resume_chunks:
+        raise ValueError("No resume chunks found. Resume processing must happen first.")
+    
+    # Translate JD to structured requirements
+    jd_requirements = translate_jd_to_structured_requirements(jd_text)
+    state["jd_requirements"] = jd_requirements
+    
+    # Perform multi-query search
+    category_scores = perform_multi_query_search(jd_requirements, resume_chunks)
+    state["category_scores"] = category_scores
+    
+    # Calculate consolidated score
+    consolidated_score = calculate_consolidated_score(category_scores)
+    state["consolidated_score"] = consolidated_score
+    
+    print(f"Consolidated score: {consolidated_score}")
+    
     return state
 
 

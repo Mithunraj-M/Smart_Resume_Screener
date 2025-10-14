@@ -1,6 +1,7 @@
 # node_generate_summary.py
 import os
 import pprint
+from typing import Dict, Any
 
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -49,50 +50,86 @@ def extract_candidate_name(resume_text: str) -> str:
         print(f"!!! Name extraction failed: {e}")
         return "Unknown Candidate"
 
-def generate_natural_language_summary(state: GraphState) -> GraphState:
+def generate_category_specific_summary(category_scores: Dict[str, Any], consolidated_score: float, candidate_name: str) -> str:
     """
-    Uses an LLM to generate a natural language summary based on the scores.
-    Also extracts the candidate's name from the resume.
+    Generate a category-specific summary based on individual scores.
     """
-    print("\n--- Executing Node: generate_natural_language_summary ---")
-
-    # Extract candidate name from resume text
-    resume_text = state.get("resume_text", "")
-    if resume_text:
-        candidate_name = extract_candidate_name(resume_text)
-        state["candidate_name"] = candidate_name
-    else:
-        state["candidate_name"] = "Unknown Candidate"
-        print("Warning: No resume text available for name extraction.")
-
-    scores = state.get("scores", {})
-    if not scores:
-        print("Warning: Scores are empty. Skipping summary generation.")
-        state["final_summary"] = "Could not generate a summary because no scores were calculated."
-        return state
-
+    print("\n>>> Generating category-specific summary...")
+    
+    # Find the category with the highest score
+    best_category = None
+    best_score = 0.0
+    
+    for category, data in category_scores.items():
+        if isinstance(data, dict) and "score" in data:
+            score = data["score"]
+            if score > best_score:
+                best_score = score
+                best_category = category
+    
+    # Create detailed score breakdown
+    score_breakdown = []
+    for category, data in category_scores.items():
+        if isinstance(data, dict) and "score" in data:
+            score = data["score"]
+            score_breakdown.append(f"{category.replace('_', ' ').title()}: {score:.1%}")
+    
     prompt = f"""
-    You are an expert HR Analyst. Your task is to provide a concise, professional summary of a candidate's suitability for a role based on a quantitative analysis.
-
-    Here is the data:
-    - Overall Score: {scores.get('overall_score', 'N/A')} (out of 1.0)
-    - Semantic Match Score: {scores.get('semantic_match_score', 'N/A')} (conceptual alignment with the job description)
-    - Skill Match Score: {scores.get('skill_match_score', 'N/A')} (direct match of required skills)
-    - Required Skills for the Role: {scores.get('required_skills', [])}
-    - Candidate's Skills that Matched: {scores.get('matched_skills', [])}
-
-    Based on this data, please write a 2-3 sentence summary. Start with a clear recommendation (e.g., "Strongly Recommended," "Good Fit," "Potential Fit," or "Not a good fit"). Then, provide a brief justification for your recommendation, highlighting the candidate's strengths or weaknesses based on the scores.
+    You are an expert HR Analyst. Based on these detailed category scores for candidate {candidate_name}, write a one-sentence summary explaining why this candidate is a strong or weak match.
+    
+    Category Scores:
+    {', '.join(score_breakdown)}
+    
+    Consolidated Score: {consolidated_score:.1%}
+    Best Category: {best_category.replace('_', ' ').title()} ({best_score:.1%})
+    
+    Write a single, clear sentence that:
+    1. States if this is a "Strong match", "Good match", "Moderate match", or "Weak match"
+    2. Mentions the category with the highest score as the primary reason
+    3. Be specific about what makes them strong/weak
+    
+    Scoring Guidelines:
+    - Strong match: consolidated score > 0.6 or best category > 0.7
+    - Good match: consolidated score > 0.4 or best category > 0.5
+    - Moderate match: consolidated score > 0.2 or best category > 0.3
+    - Weak match: below moderate thresholds
+    
+    Example: "Strong match, primarily due to extensive and highly relevant work experience in software development."
     """
-
+    
     try:
         response = generative_model.generate_content(prompt)
         summary = response.text.strip()
-        print(">>> LLM-generated summary created successfully.")
-        state["final_summary"] = summary
+        print(f"<<< Generated category-specific summary: {summary}")
+        return summary
     except Exception as e:
-        print(f"!!! LLM summary generation failed: {e}")
-        state["final_summary"] = "An error occurred while generating the summary."
+        print(f"!!! Category-specific summary generation failed: {e}")
+        return f"Moderate match based on overall score of {consolidated_score:.1%}."
 
+def generate_natural_language_summary(state: GraphState) -> GraphState:
+    """
+    Generate a natural language summary based on structured category scores.
+    """
+    print("\n--- Executing Node: generate_natural_language_summary ---")
+
+    # Get candidate name
+    candidate_name = state.get("candidate_name", "Unknown Candidate")
+    
+    # Get category scores and consolidated score
+    category_scores = state.get("category_scores", {})
+    consolidated_score = state.get("consolidated_score", 0.0)
+    
+    if not category_scores:
+        print("Warning: No category scores available. Skipping summary generation.")
+        state["final_summary"] = "Could not generate a summary because no category scores were calculated."
+        return state
+
+    # Generate category-specific summary
+    summary = generate_category_specific_summary(category_scores, consolidated_score, candidate_name)
+    state["final_summary"] = summary
+    
+    print(f"Final summary: {summary}")
+    
     return state
 
 if __name__ == "__main__":

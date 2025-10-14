@@ -3,6 +3,7 @@ import os
 import pprint
 import re
 import json
+from typing import Dict, List, Any
 
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
@@ -12,6 +13,7 @@ import google.generativeai as genai
 
 from .state import GraphState
 from .process_jd import process_job_description
+from .generate_summary import extract_candidate_name
 
 load_dotenv()
 
@@ -110,10 +112,110 @@ def extract_skills_with_llm(text: str, text_type: str = "resume") -> list:
 
 
 
+def extract_resume_sections(resume_text: str) -> Dict[str, List[str]]:
+    """
+    Uses LLM to extract structured sections from resume text.
+    """
+    print("\n>>> Extracting structured sections from resume...")
+    
+    prompt = f"""
+    You are an expert at parsing resumes. Extract the following sections from this resume text and return them as a JSON object.
+    
+    Resume Text:
+    ---
+    {resume_text[:4000]}  # Limit to avoid token limits
+    ---
+    
+    Extract these sections and return as JSON:
+    {{
+        "summary": ["professional summary or objective text"],
+        "work_experience": ["each job as separate string - include company, role, duration, key achievements"],
+        "projects": ["each project as separate string - include project name, description, technologies used"],
+        "skills": ["ALL technical skills, tools, technologies as ONE comprehensive string separated by commas"],
+        "education": ["degree, institution, year"],
+        "certifications": ["certification name, issuing body, year"]
+    }}
+    
+    Rules:
+    - Each work experience entry should be a separate string
+    - Each project should be a separate string  
+    - Skills should be ONE single string containing ALL technologies like: "Python, Java, React, AWS, Docker, etc."
+    - Do NOT split skills into individual items
+    - If a section is not found, use empty array []
+    - Be comprehensive but concise
+    - Preserve important details like company names, technologies, achievements
+    
+    Return ONLY valid JSON, no other text.
+    """
+    
+    try:
+        response = generative_model.generate_content(prompt)
+        cleaned_response = response.text.strip().replace("```json", "").replace("```", "")
+        print(f"Raw LLM response: {cleaned_response[:500]}...")
+        sections = json.loads(cleaned_response)
+        print(f"<<< Extracted {sum(len(v) for v in sections.values())} total chunks from resume sections")
+        
+        # Debug: Print what we got for skills
+        if "skills" in sections:
+            print(f"Skills section: {sections['skills']}")
+            
+            # Fix skills if they're individual characters
+            if sections["skills"] and len(sections["skills"]) > 10:
+                # If we have many individual characters, combine them
+                combined_skills = "".join(sections["skills"])
+                sections["skills"] = [combined_skills]
+                print(f"Combined skills into single string: {combined_skills[:100]}...")
+        
+        return sections
+    except Exception as e:
+        print(f"!!! Resume section extraction failed: {e}")
+        return {
+            "summary": [],
+            "work_experience": [],
+            "projects": [],
+            "skills": [],
+            "education": [],
+            "certifications": []
+        }
+
+def chunk_resume_by_sections(resume_text: str) -> List[Dict[str, Any]]:
+    """
+    Parse resume into structured chunks with embeddings.
+    """
+    print("\n--- Chunking resume by sections ---")
+    
+    # Extract structured sections
+    sections = extract_resume_sections(resume_text)
+    
+    chunks = []
+    chunk_id = 0
+    
+    for category, content_list in sections.items():
+        if not content_list:
+            continue
+            
+        for i, content in enumerate(content_list):
+            if content.strip():  # Only process non-empty content
+                # Create embedding for this chunk
+                embedding = embedding_model.encode(content).tolist()
+                
+                chunk = {
+                    "chunk_id": f"resume_{chunk_id}",
+                    "category": category,
+                    "text": content,
+                    "embedding": embedding
+                }
+                chunks.append(chunk)
+                chunk_id += 1
+                
+                print(f"Created chunk {chunk_id} for {category}: {content[:50]}...")
+    
+    print(f"Total chunks created: {len(chunks)}")
+    return chunks
+
 def process_and_score_resume(state: GraphState) -> GraphState:
     """
-    Processes a resume, extracts features, and scores it against the JD.
-    Now accepts resume content directly from state.
+    Processes a resume by chunking it into structured sections and storing in database.
     """
     print("\n--- Executing Node: process_and_score_resume ---")
     if index is None:
@@ -138,63 +240,35 @@ def process_and_score_resume(state: GraphState) -> GraphState:
     # Store resume text in state for later use
     state["resume_text"] = resume_text
 
-    # Extract skills from resume using LLM
-    resume_skills = extract_skills_with_llm(resume_text, "resume")
-    extracted_features = {"skills": resume_skills}
-    print(f"Found {len(resume_skills)} skills in resume: {resume_skills}")
+    # Extract candidate name from resume text
+    candidate_name = extract_candidate_name(resume_text)
+    state["candidate_name"] = candidate_name
+    print(f"Extracted candidate name: {candidate_name}")
 
-    # Calculate semantic match score
-    resume_embedding = embedding_model.encode(resume_text).tolist()
-    query_response = index.query(vector=resume_embedding, top_k=3, include_metadata=False)
-    semantic_scores = [match['score'] for match in query_response['matches']]
-    semantic_match_score = sum(semantic_scores) / len(semantic_scores) if semantic_scores else 0
-    print(f"Semantic match score (avg of top 3): {semantic_match_score:.4f}")
-
-    # Extract required skills from job description using LLM
-    jd_text = state["job_description"]
-    required_skills = extract_skills_with_llm(jd_text, "job description")
+    # Chunk resume into structured sections
+    resume_chunks = chunk_resume_by_sections(resume_text)
     
-    # Calculate skill match score
-    matched_skills = set()
-    if not required_skills:
-        skill_match_score = 0
-        print("Warning: No skills identified in job description. Skill score is 0.")
-    elif not resume_skills:
-        skill_match_score = 0
-        print("Warning: No skills identified in resume. Skill score is 0.")
-    else:
-        # Find matches between resume and required skills (case-insensitive)
-        resume_skills_lower = [skill.lower().strip() for skill in resume_skills]
-        required_skills_lower = [skill.lower().strip() for skill in required_skills]
+    # Store chunks in Pinecone database
+    if resume_chunks:
+        vectors_to_upsert = []
+        for chunk in resume_chunks:
+            vector_id = f"{chunk['chunk_id']}_{chunk['category']}"
+            metadata = {
+                "text": chunk["text"],
+                "category": chunk["category"],
+                "source": "resume"
+            }
+            vectors_to_upsert.append({
+                "id": vector_id,
+                "values": chunk["embedding"],
+                "metadata": metadata
+            })
         
-        matched_skills = set(required_skills_lower).intersection(set(resume_skills_lower))
-        
-        # Convert back to original case for display
-        matched_skills_original = []
-        for req_skill in required_skills:
-            if req_skill.lower().strip() in matched_skills:
-                matched_skills_original.append(req_skill)
-        
-        skill_match_score = len(matched_skills) / len(required_skills)
-        print(f"Required skills (from LLM): {required_skills}")
-        print(f"Resume skills (from LLM): {resume_skills}")
-        print(f"Matched skills: {matched_skills_original}")
-        print(f"Skill match score: {len(matched_skills)}/{len(required_skills)} = {skill_match_score:.4f}")
-
-    overall_score = (
-        semantic_match_score * WEIGHTS["semantic_match"] +
-        skill_match_score * WEIGHTS["skill_match"]
-    )
-    print(f"Overall weighted score: {overall_score:.4f}")
-
-    state["extracted_resume_features"] = extracted_features
-    state["scores"] = {
-        "overall_score": round(overall_score, 4),
-        "semantic_match_score": round(semantic_match_score, 4),
-        "skill_match_score": round(skill_match_score, 4),
-        "matched_skills": sorted(list(matched_skills)),
-        "required_skills": required_skills
-    }
+        index.upsert(vectors=vectors_to_upsert)
+        print(f"Successfully stored {len(vectors_to_upsert)} resume chunks in Pinecone")
+    
+    # Store chunks in state
+    state["resume_chunks"] = resume_chunks
     
     return state
 

@@ -48,10 +48,11 @@ async def analyze_resume(job_description: UploadFile = File(...), resume: Upload
             "resume_content": resume_content,
             "resume_path": "",  # Empty for API usage
             "resume_text": "",  # Will be populated by process_resume
-            "candidate_name": "",  # Will be populated by generate_summary
-            "jd_chunks": [],
-            "extracted_resume_features": {},
-            "scores": {},
+            "candidate_name": "",  # Will be populated by process_resume
+            "resume_chunks": [],
+            "jd_requirements": {},
+            "category_scores": {},
+            "consolidated_score": 0.0,
             "final_summary": ""
         }
         
@@ -62,9 +63,17 @@ async def analyze_resume(job_description: UploadFile = File(...), resume: Upload
         
         # Extract results
         final_node_state = final_state['generate_summary']
-        scores = final_node_state['scores']
+        category_scores = final_node_state.get('category_scores', {})
+        consolidated_score = final_node_state.get('consolidated_score', 0.0)
         summary = final_node_state['final_summary']
         candidate_name = final_node_state.get('candidate_name', 'Unknown Candidate')
+        
+        # Convert category scores to the expected format
+        scores = {
+            "overall_score": consolidated_score,
+            "category_scores": category_scores,
+            "consolidated_score": consolidated_score
+        }
         
         return AnalysisResponse(
             scores=scores,
