@@ -9,7 +9,7 @@ st.set_page_config(
     page_title="Smart Resume Screener",
     page_icon="📄",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Custom CSS for styling
@@ -29,10 +29,6 @@ st.markdown("""
         margin-bottom: 3rem;
     }
     .upload-section {
-        background-color: #f9fafb;
-        padding: 2rem;
-        border-radius: 10px;
-        border: 2px dashed #d1d5db;
         margin-bottom: 2rem;
     }
     .result-section {
@@ -59,6 +55,33 @@ st.markdown("""
         font-weight: 600;
         color: white;
         margin-bottom: 1rem;
+    }
+    
+    /* Hide file uploader white backgrounds */
+    .stFileUploader > div > div {
+        background-color: transparent !important;
+        border: none !important;
+    }
+    
+    .stFileUploader > div > div > div {
+        background-color: transparent !important;
+        border: none !important;
+    }
+    
+    /* Hide the drag and drop area background */
+    .stFileUploader > div > div > div > div {
+        background-color: transparent !important;
+        border: none !important;
+    }
+    
+    /* Make file uploader text visible on dark background */
+    .stFileUploader label {
+        color: white !important;
+    }
+    
+    /* Hide the file uploader container background */
+    .stFileUploader {
+        background-color: transparent !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -140,36 +163,11 @@ def main():
     st.markdown('<h1 class="main-header">Smart Resume Screener</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">AI-powered resume analysis and job matching</p>', unsafe_allow_html=True)
     
-    # Sidebar for API status
-    with st.sidebar:
-        st.header("System Status")
-        
-        # Check API connection
-        try:
-            response = requests.get("http://localhost:8000/", timeout=5)
-            if response.status_code == 200:
-                st.success("Backend API: Connected")
-            else:
-                st.error("Backend API: Error")
-        except:
-            st.error("Backend API: Disconnected")
-        
-        st.markdown("---")
-        st.markdown("### Instructions")
-        st.markdown("""
-        1. Upload a job description PDF
-        2. Upload one or more candidate resume PDFs
-        3. Click 'Analyze Resumes' to get results
-        4. View the analysis and recommendations
-        
-        **Note:** Batch analysis may take 2-5 minutes depending on the number of resumes.
-        """)
     
     # Main content area
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.markdown('<div class="upload-section">', unsafe_allow_html=True)
         st.subheader("Job Description")
         jd_file = st.file_uploader(
             "Upload Job Description PDF",
@@ -177,10 +175,8 @@ def main():
             key="jd_upload",
             help="Upload the job description as a PDF file"
         )
-        st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<div class="upload-section">', unsafe_allow_html=True)
         st.subheader("Candidate Resumes")
         resume_files = st.file_uploader(
             "Upload one or more Resume PDFs",
@@ -189,7 +185,6 @@ def main():
             help="Upload one or multiple candidate resumes as PDF files",
             accept_multiple_files=True
         )
-        st.markdown('</div>', unsafe_allow_html=True)
     
     # Analyze button
     st.markdown("<br>", unsafe_allow_html=True)
@@ -231,6 +226,10 @@ def main():
             else:
                 progress_bar.progress(0.0)
                 status_text.text("Analysis failed.")
+
+        # Clear progress elements after analysis
+        progress_bar.empty()
+        status_text.empty()
 
         if batch_result and 'results' in batch_result:
             st.markdown('<div class="result-section">', unsafe_allow_html=True)
