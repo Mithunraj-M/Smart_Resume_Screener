@@ -7,6 +7,7 @@ class GraphState(TypedDict):
 
     Attributes:
         job_description: The initial job description text.
+        resume_id: A unique identifier for the resume (for namespacing/results).
         resume_path: The file path to the candidate's resume (for testing).
         resume_content: The resume PDF content as bytes (for API).
         resume_text: The extracted text from the resume.
@@ -18,6 +19,7 @@ class GraphState(TypedDict):
         final_summary: The final LLM-generated summary.
     """
     job_description: str
+    resume_id: str
     resume_path: str
     resume_content: Optional[bytes]
     resume_text: str

@@ -71,22 +71,36 @@ def translate_jd_to_structured_requirements(jd_text: str) -> Dict[str, Any]:
     
     try:
         response = generative_model.generate_content(prompt)
+        if not response or not response.text:
+            print("!!! JD translation failed: Empty response from LLM")
+            return get_default_requirements()
+            
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "")
+        print(f"Raw JD LLM response: {cleaned_response[:500]}...")
+        
         requirements = json.loads(cleaned_response)
         print(f"<<< Extracted structured requirements: {list(requirements.keys())}")
         return requirements
+    except json.JSONDecodeError as e:
+        print(f"!!! JD translation failed - JSON decode error: {e}")
+        print(f"Raw response that failed: {cleaned_response if 'cleaned_response' in locals() else 'No response'}")
+        return get_default_requirements()
     except Exception as e:
         print(f"!!! JD translation failed: {e}")
-        return {
-            "required_experience": "",
-            "hard_skills": [],
-            "soft_skills": [],
-            "required_tools": [],
-            "education_requirements": "",
-            "certifications": [],
-            "project_experience": [],
-            "industry_experience": ""
-        }
+        return get_default_requirements()
+
+def get_default_requirements():
+    """Return default empty requirements structure."""
+    return {
+        "required_experience": "",
+        "hard_skills": [],
+        "soft_skills": [],
+        "required_tools": [],
+        "education_requirements": "",
+        "certifications": [],
+        "project_experience": [],
+        "industry_experience": ""
+    }
 
 def perform_multi_query_search(jd_requirements: Dict[str, Any], resume_chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -194,8 +208,8 @@ def process_job_description(state: GraphState) -> GraphState:
     if not resume_chunks:
         raise ValueError("No resume chunks found. Resume processing must happen first.")
     
-    # Translate JD to structured requirements
-    jd_requirements = translate_jd_to_structured_requirements(jd_text)
+    # Translate JD to structured requirements only if not already present (batch mode may inject)
+    jd_requirements = state.get("jd_requirements") or translate_jd_to_structured_requirements(jd_text)
     state["jd_requirements"] = jd_requirements
     
     # Perform multi-query search

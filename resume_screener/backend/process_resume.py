@@ -150,6 +150,10 @@ def extract_resume_sections(resume_text: str) -> Dict[str, List[str]]:
     
     try:
         response = generative_model.generate_content(prompt)
+        if not response or not response.text:
+            print("!!! Resume section extraction failed: Empty response from LLM")
+            return get_default_sections()
+            
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "")
         print(f"Raw LLM response: {cleaned_response[:500]}...")
         sections = json.loads(cleaned_response)
@@ -167,16 +171,24 @@ def extract_resume_sections(resume_text: str) -> Dict[str, List[str]]:
                 print(f"Combined skills into single string: {combined_skills[:100]}...")
         
         return sections
+    except json.JSONDecodeError as e:
+        print(f"!!! Resume section extraction failed - JSON decode error: {e}")
+        print(f"Raw response that failed: {cleaned_response if 'cleaned_response' in locals() else 'No response'}")
+        return get_default_sections()
     except Exception as e:
         print(f"!!! Resume section extraction failed: {e}")
-        return {
-            "summary": [],
-            "work_experience": [],
-            "projects": [],
-            "skills": [],
-            "education": [],
-            "certifications": []
-        }
+        return get_default_sections()
+
+def get_default_sections():
+    """Return default empty sections structure."""
+    return {
+        "summary": [],
+        "work_experience": [],
+        "projects": [],
+        "skills": [],
+        "education": [],
+        "certifications": []
+    }
 
 def chunk_resume_by_sections(resume_text: str) -> List[Dict[str, Any]]:
     """
@@ -199,8 +211,9 @@ def chunk_resume_by_sections(resume_text: str) -> List[Dict[str, Any]]:
                 # Create embedding for this chunk
                 embedding = embedding_model.encode(content).tolist()
                 
+                # Use simple numeric within-resume IDs here; we will prefix with resume_id when storing
                 chunk = {
-                    "chunk_id": f"resume_{chunk_id}",
+                    "chunk_id": f"chunk_{chunk_id}",
                     "category": category,
                     "text": content,
                     "embedding": embedding
@@ -251,12 +264,16 @@ def process_and_score_resume(state: GraphState) -> GraphState:
     # Store chunks in Pinecone database
     if resume_chunks:
         vectors_to_upsert = []
+        resume_id = state.get("resume_id") or "resume"
         for chunk in resume_chunks:
-            vector_id = f"{chunk['chunk_id']}_{chunk['category']}"
+            # Namespace by resume_id so multiple resumes can coexist
+            vector_id = f"{resume_id}:{chunk['chunk_id']}:{chunk['category']}"
             metadata = {
                 "text": chunk["text"],
                 "category": chunk["category"],
-                "source": "resume"
+                "source": "resume",
+                "resume_id": resume_id,
+                "chunk_id": chunk["chunk_id"]
             }
             vectors_to_upsert.append({
                 "id": vector_id,

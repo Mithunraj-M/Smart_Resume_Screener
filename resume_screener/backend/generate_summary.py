@@ -74,6 +74,9 @@ def generate_category_specific_summary(category_scores: Dict[str, Any], consolid
             score = data["score"]
             score_breakdown.append(f"{category.replace('_', ' ').title()}: {score:.1%}")
     
+    # Ensure safe values for prompt
+    best_category_label = (best_category.replace('_', ' ').title()) if isinstance(best_category, str) else "Overall Fit"
+
     prompt = f"""
     You are an expert HR Analyst. Based on these detailed category scores for candidate {candidate_name}, write a one-sentence summary explaining why this candidate is a strong or weak match.
     
@@ -81,7 +84,7 @@ def generate_category_specific_summary(category_scores: Dict[str, Any], consolid
     {', '.join(score_breakdown)}
     
     Consolidated Score: {consolidated_score:.1%}
-    Best Category: {best_category.replace('_', ' ').title()} ({best_score:.1%})
+    Best Category: {best_category_label} ({best_score:.1%})
     
     Write a single, clear sentence that:
     1. States if this is a "Strong match", "Good match", "Moderate match", or "Weak match"
@@ -99,6 +102,10 @@ def generate_category_specific_summary(category_scores: Dict[str, Any], consolid
     
     try:
         response = generative_model.generate_content(prompt)
+        if not response or not response.text:
+            print("!!! Category-specific summary generation failed: Empty response from LLM")
+            return f"Moderate match based on overall score of {consolidated_score:.1%}."
+            
         summary = response.text.strip()
         print(f"<<< Generated category-specific summary: {summary}")
         return summary
