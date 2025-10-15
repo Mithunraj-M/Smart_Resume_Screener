@@ -1,4 +1,7 @@
 # Smart Resume Screener
+## Video Demonstration
+
+[Watch Demo Video](https://drive.google.com/file/d/1e4w4q0JmFmeMylC57UYa8u2hLnzxGkkB/view?usp=sharing)
 ## Overview
 The Smart Resume Screener is an AI-powered system that uses LangGraph for workflow orchestration, vector embeddings for semantic matching, and LLM-based analysis for intelligent resume screening. The system consists of:
 
