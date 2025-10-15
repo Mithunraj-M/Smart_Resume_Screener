@@ -1,23 +1,28 @@
 # Smart Resume Screener
 ## Overview
-The Smart Resume Screener is an AI-powered system that uses LangGraph for workflow orchestration, vector embeddings for semantic matching, and LLM-based analysis for intelligent resume screening. The system consists of Backend API that uses FastAPI, LangGraph Workflow for orchestration, Pincone for Vector Database, gemini-2.5-flash LLM for text processing and analysis.
+The Smart Resume Screener is an AI-powered system that uses LangGraph for workflow orchestration, vector embeddings for semantic matching, and LLM-based analysis for intelligent resume screening. The system consists of:
+
+- **Backend API**: FastAPI for RESTful endpoints
+- **LangGraph Workflow**: Orchestrates the analysis pipeline  
+- **Pinecone**: Vector database for embeddings storage
+- **Gemini 2.5 Flash**: LLM for text processing and analysis
 
 ## Methodology
 The system uses a 3-node LangGraph workflow that processes resumes through these stages:
 
-![Resume Screener LangGraph flow structure](workflow_graph.png)
+![Resume Screener LangGraph flow structure](reports/figures/workflow_graph.png)
 
 The GraphState maintains the entire workflow state.
 
 ## Core Idea
 
-![Core Idea of Resume Screening](image.png)
+![Core Idea of Resume Screening](reports/figures/image.png)
 
-# Process_Resume node
+## Process_Resume node
 - The llm analyzes each resume and provides chunks in clean section wise manner. Ex:work experience, skills, projects etc.
 - These Chunks are encoded by the 'all-MiniLM-L6-v2' embedding model
 - These encoded chunks are stored in Pinecone DB
-- Prompt for section wise seperation: " You are an expert technical recruiter and HR analyst. Your task is to extract ALL technical skills, technologies, frameworks, and tools mentioned in the following {text_type} text.
+### Prompt for section-wise separation: " You are an expert technical recruiter and HR analyst. Your task is to extract ALL technical skills, technologies, frameworks, and tools mentioned in the following {text_type} text.
 
     {text_type.title()} Text:
     ---
@@ -38,10 +43,10 @@ The GraphState maintains the entire workflow state.
 
     Example: ["python", "react", "aws", "docker", "kubernetes", "postgresql", "agile", "microservices"] "
 
-# Process_JD node 
+## Process_JD node 
 - In order to get meaningful and structured requirements from the JD, the LLM is used for query translation in order to get structured requirements.
 - Then semantic matching is done using cosine similarity and scores are calculated providing weights for each sections. Ex: Projects: 0.4, Skills:0.3 etc.
-- Prompt for query translation for structured requirements: " Analyze this job description and extract structured requirements. Return a JSON object with these keys:
+### Prompt for query translation for structured requirements: " Analyze this job description and extract structured requirements. Return a JSON object with these keys:
     
     Job Description:
     ---
@@ -63,10 +68,11 @@ The GraphState maintains the entire workflow state.
     Be specific and comprehensive. If a category is not mentioned, use empty string or array.
     Return ONLY valid JSON, no other text."
 
-# Generate_Summary node
+## Generate_Summary node
 - The section wise calculate scores and consolidated scores of the resumes are passed to the LLM which analyzes if the candidate is eligible and justifies why he should be eligible
 - The input and output is handled through frontend developed using streamlit for initial developmental purposes.
-- Prompt for final summary generation with justifications: " You are an expert HR Analyst. Based on these detailed category scores for candidate {candidate_name}, write a one-sentence summary explaining why this candidate is a strong or weak match.
+### Prompt for final summary generation with justifications: 
+" You are an expert HR Analyst. Based on these detailed category scores for candidate {candidate_name}, write a one-sentence summary explaining why this candidate is a strong or weak match.
     
     Category Scores:
     {', '.join(score_breakdown)}
