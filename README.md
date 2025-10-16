@@ -105,15 +105,15 @@ Example: "Strong match, primarily due to extensive and highly relevant work expe
 ## Output
 - Provide JD and candidate resume as input
 
-![Resume Input](reports/figures/resume input.png)
+![Resume Input](reports/figures/resume_input.png)
 
 - Provides status of candidates with respect to Scores.
 
-![Resume Output](reports/figures/resume output.png)
+![Resume Output](reports/figures/resume_output.png)
 
 - Provides Individual section scores with respect to each candidate which can be used for further deeper evaluation
 
-![Resume Details](reports/figures/resume details.png)
+![Resume Details](reports/figures/resume_details.png)
 
 ## Project Setup:
 
@@ -135,7 +135,7 @@ GOOGLE_API_KEY="your_google_api_key"
 
 ## Commands to Run:
 
-```
+```bash
 uvicorn resume_screener.backend.main:app --reload
 streamlit run resume_screener/frontend/app.py
 ```
