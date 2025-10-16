@@ -102,6 +102,19 @@ Write a single, clear sentence that:
 Example: "Strong match, primarily due to extensive and highly relevant work experience in software development."
 ```
 
+## Output
+- Provide JD and candidate resume as input
+
+![Resume Input](reports/figures/resume_input.png)
+
+- Provides status of candidates with respect to Scores.
+
+![Resume Output](reports/figures/resume_output.png)
+
+- Provides Individual section scores with respect to each candidate which can be used for further deeper evaluation
+
+![Resume Details](reports/figures/resume_details.png)
+
 ## Project Setup:
 
 ```bash
@@ -118,4 +131,11 @@ pip install -r requirements.txt
 PINECONE_API_KEY="your_pincone_api_key"
 PINECONE_INDEX_NAME="resume-screener" 
 GOOGLE_API_KEY="your_google_api_key"
+```
+
+## Commands to Run:
+
+```
+uvicorn resume_screener.backend.main:app --reload
+streamlit run resume_screener/frontend/app.py
 ```
